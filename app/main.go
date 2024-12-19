@@ -39,6 +39,19 @@ func main() {
 
 		// Uncomment this to pass the first stage
 		fmt.Printf("database page size: %v", pageSize)
+
+		// Printing number of tables
+		pageHeader := make([]byte, 12)
+		_, err = databaseFile.ReadAt(pageHeader, 100)
+		if err != nil {
+			log.Fatal(err)
+		}
+		var cells uint16
+		if err := binary.Read(bytes.NewReader(pageHeader[3:5]), binary.BigEndian, &cells); err != nil {
+			fmt.Println("Failed to read integer:", err)
+			return
+		}
+		fmt.Printf("\nnumber of tables: %d", cells)
 	default:
 		fmt.Println("Unknown command", command)
 		os.Exit(1)
