@@ -51,12 +51,9 @@ func main() {
 		if err != nil {
 			log.Fatalf("failed to read cell pointer array. %v", err)
 		}
-		// fmt.Printf("\ncellPArr %v", cellPArr)
+
 		var tables []string
 		for _, ptr := range cellPArr {
-			if ptr == 0 {
-				continue
-			}
 			c, err := extractCell(int64(ptr), databaseFile)
 			if err != nil {
 				log.Fatalf("Failed to load cell at %v. %v", ptr, err)
@@ -76,25 +73,21 @@ func cellPointerArray(f *os.File) ([]uint16, error) {
 	if err != nil {
 		return nil, err
 	}
-	// fmt.Printf("\nph %v\n", ph)
 	k := ph.nCells()
 
-	// fmt.Printf("\nthe start of the cell content area %v\n", ph.startCellPtr())
-
 	cellPointerArray := make([]byte, k*2)
+	// the b-tree page header used here is 8 byte
+	// https://www.sqlite.org/fileformat.html#b_tree_pages
 	_, err = f.ReadAt(cellPointerArray, 108)
 	if err != nil {
 		return nil, err
 	}
-	// fmt.Printf("cellPointerArray %v", cellPointerArray)
 
 	pArr := make([]uint16, k)
 
 	for i := uint16(0); i < k; i++ {
 		pArr[i] = binary.BigEndian.Uint16(cellPointerArray[i*2 : i*2+2])
 	}
-
-	// fmt.Printf("\npArr %v\n", pArr)
 
 	return pArr, nil
 }
