@@ -79,8 +79,10 @@ func cellPointerArray(f *os.File) ([]uint16, error) {
 	// fmt.Printf("\nph %v\n", ph)
 	k := ph.nCells()
 
+	// fmt.Printf("\nthe start of the cell content area %v\n", ph.startCellPtr())
+
 	cellPointerArray := make([]byte, k*2)
-	_, err = f.ReadAt(cellPointerArray, 112)
+	_, err = f.ReadAt(cellPointerArray, 108)
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +94,8 @@ func cellPointerArray(f *os.File) ([]uint16, error) {
 		pArr[i] = binary.BigEndian.Uint16(cellPointerArray[i*2 : i*2+2])
 	}
 
+	// fmt.Printf("\npArr %v\n", pArr)
+
 	return pArr, nil
 }
 
@@ -100,6 +104,10 @@ type PageHeader []byte
 // nCells retuern number of cells from page header
 func (p PageHeader) nCells() uint16 {
 	return binary.BigEndian.Uint16(p[3:5])
+}
+
+func (p PageHeader) startCellPtr() uint16 {
+	return binary.BigEndian.Uint16(p[5:7])
 }
 
 func extractPageHeader(f *os.File) (*PageHeader, error) {
