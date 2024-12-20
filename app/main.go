@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	// Available if you need it!
 	// "github.com/xwb1989/sqlparser"
 )
@@ -14,14 +15,13 @@ import (
 func main() {
 	databaseFilePath := os.Args[1]
 	command := os.Args[2]
+	databaseFile, err := os.Open(databaseFilePath)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	switch command {
 	case ".dbinfo":
-		databaseFile, err := os.Open(databaseFilePath)
-		if err != nil {
-			log.Fatal(err)
-		}
-
 		header := make([]byte, 100)
 
 		_, err = databaseFile.Read(header)
@@ -41,19 +41,125 @@ func main() {
 		fmt.Printf("database page size: %v", pageSize)
 
 		// Printing number of tables
-		pageHeader := make([]byte, 12)
-		_, err = databaseFile.ReadAt(pageHeader, 100)
+		ph, err := extractPageHeader(databaseFile)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("Failed to extract nCells %v", err)
 		}
-		var cells uint16
-		if err := binary.Read(bytes.NewReader(pageHeader[3:5]), binary.BigEndian, &cells); err != nil {
-			fmt.Println("Failed to read integer:", err)
-			return
+		fmt.Printf("\nnumber of tables: %d", ph.nCells())
+	case ".tables":
+		cellPArr, err := cellPointerArray(databaseFile)
+		if err != nil {
+			log.Fatalf("failed to read cell pointer array. %v", err)
 		}
-		fmt.Printf("\nnumber of tables: %d", cells)
+		// fmt.Printf("\ncellPArr %v", cellPArr)
+		var tables []string
+		for _, ptr := range cellPArr {
+			if ptr == 0 {
+				continue
+			}
+			c, err := extractCell(int64(ptr), databaseFile)
+			if err != nil {
+				log.Fatalf("Failed to load cell at %v. %v", ptr, err)
+			}
+			r := c.record()
+			tables = append(tables, r.tableName())
+		}
+		fmt.Printf("%s", strings.Join(tables, " "))
 	default:
 		fmt.Println("Unknown command", command)
 		os.Exit(1)
 	}
+}
+
+func cellPointerArray(f *os.File) ([]uint16, error) {
+	ph, err := extractPageHeader(f)
+	if err != nil {
+		return nil, err
+	}
+	// fmt.Printf("\nph %v\n", ph)
+	k := ph.nCells()
+
+	cellPointerArray := make([]byte, k*2)
+	_, err = f.ReadAt(cellPointerArray, 112)
+	if err != nil {
+		return nil, err
+	}
+	// fmt.Printf("cellPointerArray %v", cellPointerArray)
+
+	pArr := make([]uint16, k)
+
+	for i := uint16(0); i < k; i++ {
+		pArr[i] = binary.BigEndian.Uint16(cellPointerArray[i*2 : i*2+2])
+	}
+
+	return pArr, nil
+}
+
+type PageHeader []byte
+
+// nCells retuern number of cells from page header
+func (p PageHeader) nCells() uint16 {
+	return binary.BigEndian.Uint16(p[3:5])
+}
+
+func extractPageHeader(f *os.File) (*PageHeader, error) {
+	header := make([]byte, 12)
+	_, err := f.ReadAt(header, 100)
+	if err != nil {
+		return nil, err
+	}
+
+	return (*PageHeader)(&header), nil
+}
+
+func extractCell(ptr int64, f *os.File) (Cell, error) {
+	cellSize := make([]byte, 1)
+	_, err := f.ReadAt(cellSize, ptr)
+	if err != nil {
+		return nil, err
+	}
+	cell := make([]byte, cellSize[0])
+
+	_, err = f.ReadAt(cell, ptr)
+	if err != nil {
+		return nil, err
+	}
+
+	return (Cell)(cell), nil
+}
+
+type Cell []byte
+type Record []byte
+
+func (c Cell) size() uint16 {
+	return binary.BigEndian.Uint16(c[0:1])
+}
+
+func (c Cell) rowID() uint16 {
+	return binary.BigEndian.Uint16(c[1:2])
+}
+
+func (c Cell) record() Record {
+	return (Record)(c[2:])
+}
+
+func (r Record) headerSize() uint16 {
+	return uint16(r[0])
+}
+
+func (r Record) typeSize() uint16 {
+	return (uint16(r[1]) - 13) / 2
+}
+
+func (r Record) nameSize() uint16 {
+	return (uint16(r[2]) - 13) / 2
+}
+
+func (r Record) tableNameSize() uint16 {
+	return (uint16(r[3]) - 13) / 2
+}
+
+func (r Record) tableName() string {
+	startPtr := r.headerSize() + r.typeSize() + r.nameSize()
+	return string(r[startPtr : startPtr+r.tableNameSize()])
 }
